@@ -1,0 +1,23 @@
+[theme]
+primaryColor = "#2d6a9f"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f7ff"
+textColor = "#1e293b"
+font = "sans serif"
+
+[server]
+maxUploadSize = 20
+```
+
+4. **"Commit changes..."** → **"Commit changes"**
+
+---
+
+Après ça, ta structure sera propre :
+```
+.gitignore          ✅
+.streamlit/
+  └── config.toml   ✅
+README.md           ✅
+app.py              ✅
+requirements.txt    ✅
