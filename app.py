@@ -7,6 +7,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from collections import defaultdict
+from pdf2image import convert_from_bytes
 
 # ─────────────────────────────────────────────
 # Page Config
@@ -110,11 +111,11 @@ with st.sidebar:
     if st.session_state.history:
         st.markdown("### 👥 Clients détectés")
         clients = sorted(set(h["client"] for h in st.session_state.history))
-        for c in clients:
-            count = sum(1 for h in st.session_state.history if h["client"] == c)
-            types_for_client = set(h["type"] for h in st.session_state.history if h["client"] == c)
+        for cl in clients:
+            count = sum(1 for h in st.session_state.history if h["client"] == cl)
+            types_for_client = set(h["type"] for h in st.session_state.history if h["client"] == cl)
             type_icons = " ".join(TYPE_CONFIG.get(t, {}).get("icon", "📄") for t in types_for_client)
-            st.markdown(f"**{c}** — {count} doc(s) {type_icons}")
+            st.markdown(f"**{cl}** — {count} doc(s) {type_icons}")
         
         st.markdown("---")
         st.metric("Total documents", len(st.session_state.history))
@@ -213,10 +214,18 @@ def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
 
 
+def pdf_to_image_b64(uploaded_file):
+    """Convertit la première page d'un PDF en image base64."""
+    images = convert_from_bytes(uploaded_file.getvalue(), first_page=1, last_page=1, dpi=200)
+    buf = io.BytesIO()
+    images[0].save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
 def extract_data(image_base64, file_type, api_key):
     client = openai.OpenAI(api_key=api_key)
     mime_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}
-    mime = mime_map.get(file_type.lower(), "image/jpeg")
+    mime = mime_map.get(file_type.lower(), "image/png")
     
     response = client.chat.completions.create(
         model="gpt-4o",
@@ -366,9 +375,9 @@ st.markdown("## 📤 Uploader des documents")
 
 uploaded_files = st.file_uploader(
     "Glisse tes documents ici — factures, devis, bons de commande, fiches de paie...",
-    type=["png", "jpg", "jpeg", "webp"],
+    type=["png", "jpg", "jpeg", "webp", "pdf"],
     accept_multiple_files=True,
-    help="Formats : PNG, JPG, JPEG, WEBP · Max 20 Mo par fichier"
+    help="Formats : PNG, JPG, JPEG, WEBP, PDF · Max 20 Mo par fichier"
 )
 
 api_key = get_api_key()
@@ -388,14 +397,31 @@ if uploaded_files and api_key:
             col_img, col_result = st.columns([1, 1.5])
             
             with col_img:
-                st.image(uploaded_file, caption=uploaded_file.name, use_container_width=True)
+                file_ext = uploaded_file.name.rsplit(".", 1)[-1].lower()
+                if file_ext == "pdf":
+                    # Afficher la première page du PDF comme image
+                    try:
+                        preview_images = convert_from_bytes(uploaded_file.getvalue(), first_page=1, last_page=1, dpi=150)
+                        st.image(preview_images[0], caption=uploaded_file.name, use_container_width=True)
+                    except Exception:
+                        st.info(f"📄 Fichier PDF : {uploaded_file.name}")
+                else:
+                    st.image(uploaded_file, caption=uploaded_file.name, use_container_width=True)
             
             with col_result:
                 with st.spinner("🔍 GPT-4o Vision analyse..."):
                     try:
-                        file_ext = uploaded_file.name.rsplit(".", 1)[-1]
-                        img_b64 = encode_image(uploaded_file)
-                        data = extract_data(img_b64, file_ext, api_key)
+                        file_ext = uploaded_file.name.rsplit(".", 1)[-1].lower()
+                        
+                        # Convertir PDF en image, sinon encoder directement
+                        if file_ext == "pdf":
+                            img_b64 = pdf_to_image_b64(uploaded_file)
+                            send_ext = "png"
+                        else:
+                            img_b64 = encode_image(uploaded_file)
+                            send_ext = file_ext
+                        
+                        data = extract_data(img_b64, send_ext, api_key)
                         
                         flat = flatten_data(data)
                         lines_df = lines_to_df(data)
