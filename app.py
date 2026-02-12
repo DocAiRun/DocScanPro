@@ -8,6 +8,8 @@ import pandas as pd
 from datetime import datetime
 from collections import defaultdict
 from pdf2image import convert_from_bytes
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # ─────────────────────────────────────────────
 # Page Config
@@ -308,6 +310,56 @@ def safe_sheet_name(name, max_len=31):
     return name[:max_len]
 
 
+def format_worksheet(ws, header_color="1e3a5f"):
+    """Applique un formatage professionnel à une feuille Excel."""
+    header_fill = PatternFill(start_color=header_color, end_color=header_color, fill_type="solid")
+    header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+    cell_font = Font(name="Calibri", size=10)
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_align = Alignment(vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin", color="D0D0D0"),
+        right=Side(style="thin", color="D0D0D0"),
+        top=Side(style="thin", color="D0D0D0"),
+        bottom=Side(style="thin", color="D0D0D0"),
+    )
+    alt_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+    
+    # Formater les en-têtes
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_align
+        cell.border = thin_border
+    
+    # Formater les données
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
+        for cell in row:
+            cell.font = cell_font
+            cell.alignment = cell_align
+            cell.border = thin_border
+            if row_idx % 2 == 0:
+                cell.fill = alt_fill
+    
+    # Auto-ajuster la largeur des colonnes
+    for col_idx, col in enumerate(ws.columns, 1):
+        max_length = 0
+        col_letter = get_column_letter(col_idx)
+        for cell in col:
+            try:
+                cell_len = len(str(cell.value or ""))
+                if cell_len > max_length:
+                    max_length = cell_len
+            except Exception:
+                pass
+        # Limiter entre 10 et 45 caractères
+        adjusted = min(max(max_length + 3, 10), 45)
+        ws.column_dimensions[col_letter].width = adjusted
+    
+    # Figer la première ligne (en-têtes)
+    ws.freeze_panes = "A2"
+
+
 def build_organized_excel(history):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -320,11 +372,22 @@ def build_organized_excel(history):
             row["Date extraction"] = h["timestamp"]
             all_flats.append(row)
         pd.DataFrame(all_flats).to_excel(writer, sheet_name="Index général", index=False)
+        format_worksheet(writer.sheets["Index général"], "1e3a5f")
         
         # 2. PAR CLIENT → PAR TYPE
         by_client = defaultdict(list)
         for h in history:
             by_client[h["client"]].append(h)
+        
+        # Couleurs par type de document
+        type_colors = {
+            "facture": "2563eb",
+            "devis": "7c3aed",
+            "bon_de_commande": "db2777",
+            "fiche_de_paie": "ea580c",
+            "note_de_frais": "059669",
+            "autre": "64748b",
+        }
         
         for client_name, client_docs in sorted(by_client.items()):
             by_type = defaultdict(list)
@@ -334,6 +397,7 @@ def build_organized_excel(history):
             for type_key, type_docs in sorted(by_type.items()):
                 type_label = TYPE_CONFIG.get(type_key, {}).get("label", type_key)
                 sheet_name = safe_sheet_name(f"{client_name} - {type_label}")
+                color = type_colors.get(type_key, "64748b")
                 
                 rows = []
                 for doc in type_docs:
@@ -341,6 +405,7 @@ def build_organized_excel(history):
                     row["Fichier source"] = doc["filename"]
                     rows.append(row)
                 pd.DataFrame(rows).to_excel(writer, sheet_name=sheet_name, index=False)
+                format_worksheet(writer.sheets[sheet_name], color)
                 
                 # Lignes détaillées
                 all_lines = []
@@ -355,6 +420,7 @@ def build_organized_excel(history):
                     combined = pd.concat(all_lines, ignore_index=True)
                     lines_sheet = safe_sheet_name(f"{client_name} - {type_label} DET")
                     combined.to_excel(writer, sheet_name=lines_sheet, index=False)
+                    format_worksheet(writer.sheets[lines_sheet], color)
     
     return output.getvalue()
 
@@ -362,9 +428,17 @@ def build_organized_excel(history):
 def build_single_excel(flat, lines_df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        pd.DataFrame([flat]).to_excel(writer, sheet_name="Résumé", index=False)
+        # Feuille résumé — transposée pour une meilleure lisibilité
+        summary_data = {"Champ": list(flat.keys()), "Valeur": list(flat.values())}
+        pd.DataFrame(summary_data).to_excel(writer, sheet_name="Résumé", index=False)
+        format_worksheet(writer.sheets["Résumé"], "1e3a5f")
+        
+        # Ajuster la colonne Valeur plus large
+        writer.sheets["Résumé"].column_dimensions["B"].width = 50
+        
         if lines_df is not None and not lines_df.empty:
             lines_df.to_excel(writer, sheet_name="Lignes détaillées", index=False)
+            format_worksheet(writer.sheets["Lignes détaillées"], "2563eb")
     return output.getvalue()
 
 
