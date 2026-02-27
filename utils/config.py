@@ -41,22 +41,30 @@ CSS: str = """
 # Types de documents supportés
 # ─────────────────────────────────────────────
 TYPE_CONFIG: dict[str, dict[str, str]] = {
-    "facture":          {"icon": "🧾", "label": "Factures"},
-    "devis":            {"icon": "📝", "label": "Devis"},
-    "bon_de_commande":  {"icon": "📦", "label": "Bons de commande"},
-    "fiche_de_paie":    {"icon": "💰", "label": "Fiches de paie"},
-    "note_de_frais":    {"icon": "🧾", "label": "Notes de frais"},
-    "autre":            {"icon": "📄", "label": "Autres"},
+    "facture":           {"icon": "🧾", "label": "Factures"},
+    "devis":             {"icon": "📝", "label": "Devis"},
+    "bon_de_commande":   {"icon": "📦", "label": "Bons de commande"},
+    "fiche_de_paie":     {"icon": "💰", "label": "Fiches de paie"},
+    "note_de_frais":     {"icon": "🧾", "label": "Notes de frais"},
+    "avoir":             {"icon": "↩️",  "label": "Avoirs"},
+    "relance":           {"icon": "🔔",  "label": "Relances"},
+    "contrat":           {"icon": "📋",  "label": "Contrats"},
+    "bon_de_livraison":  {"icon": "🚚",  "label": "Bons de livraison"},
+    "autre":             {"icon": "📄", "label": "Autres"},
 }
 
 # Couleurs Excel par type de document (hex sans #)
 TYPE_COLORS: dict[str, str] = {
-    "facture":          "2563eb",
-    "devis":            "7c3aed",
-    "bon_de_commande":  "db2777",
-    "fiche_de_paie":    "ea580c",
-    "note_de_frais":    "059669",
-    "autre":            "64748b",
+    "facture":           "2563eb",
+    "devis":             "7c3aed",
+    "bon_de_commande":   "db2777",
+    "fiche_de_paie":     "ea580c",
+    "note_de_frais":     "059669",
+    "avoir":             "dc2626",
+    "relance":           "d97706",
+    "contrat":           "0891b2",
+    "bon_de_livraison":  "65a30d",
+    "autre":             "64748b",
 }
 
 # ─────────────────────────────────────────────
@@ -66,16 +74,20 @@ SYSTEM_PROMPT: str = """Tu es un assistant expert en extraction de données docu
 On te fournit l'image d'un document professionnel.
 
 MISSIONS :
-1. IDENTIFIER le type de document
-2. IDENTIFIER le client (= la personne/entreprise qui REÇOIT le document ou à qui il est adressé. Si c'est une facture, le client est le destinataire. Si c'est une fiche de paie, le client est l'employeur.)
-3. EXTRAIRE toutes les informations
+1. IDENTIFIER le type de document parmi la liste fournie
+2. IDENTIFIER le client (= la personne/entreprise qui REÇOIT le document ou à qui il est adressé)
+   - Facture/devis/relance/avoir → client = destinataire
+   - Fiche de paie → client = employeur
+   - Contrat → client = les deux parties (indique le nom principal)
+3. EXTRAIRE toutes les informations disponibles, notamment SIRET des deux parties
 
 Réponds UNIQUEMENT avec un JSON valide (sans markdown, sans backticks) :
 
 {
-    "type_document": "facture | devis | bon_de_commande | fiche_de_paie | note_de_frais | autre",
+    "type_document": "facture | devis | bon_de_commande | fiche_de_paie | note_de_frais | avoir | relance | contrat | bon_de_livraison | autre",
     "confiance_type": "haute | moyenne | basse",
     "client_detecte": "Nom de l'entreprise/personne cliente identifiée",
+    "taux_tva_principal": "20 | 10 | 5.5 | 2.1 | 0 | ",
     "emetteur": {
         "nom": "",
         "adresse": "",
@@ -89,7 +101,8 @@ Réponds UNIQUEMENT avec un JSON valide (sans markdown, sans backticks) :
         "adresse": "",
         "telephone": "",
         "email": "",
-        "siret": ""
+        "siret": "",
+        "tva_intra": ""
     },
     "document": {
         "numero": "",
@@ -124,7 +137,11 @@ Réponds UNIQUEMENT avec un JSON valide (sans markdown, sans backticks) :
 
 Règles :
 - Remplis UNIQUEMENT les champs trouvés dans le document, laisse "" pour les absents
-- client_detecte : déduis le nom du client principal (destinataire pour facture/devis, employeur pour fiche de paie)
-- Montants en string "1234.56", dates en "JJ/MM/AAAA"
+- client_detecte : déduis le nom du client principal selon le type de document
+- SIRET : extrais le SIRET/SIREN de l'émetteur ET du destinataire si présents (14 chiffres ou 9 chiffres)
+- taux_tva_principal : taux TVA dominant du document (ex: "20" pour 20%). Laisse "" si non applicable (fiche de paie, etc.)
+- Montants en string "1234.56" (point comme séparateur décimal), dates en "JJ/MM/AAAA"
+- avoir : document qui annule/corrige une facture existante (montant négatif ou mention avoir/credit note)
+- relance : courrier de rappel de paiement
 - Si le type ne correspond à aucun listé, utilise "autre"
 """

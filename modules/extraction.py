@@ -120,6 +120,7 @@ def flatten_data(data: dict) -> dict:
     flat["Client"] = data.get("client_detecte", "Non identifié")
     flat["Type"] = data.get("type_document", "autre")
     flat["Confiance"] = data.get("confiance_type", "")
+    flat["Taux TVA principal (%)"] = data.get("taux_tva_principal", "")
 
     em = data.get("emetteur", {})
     flat["Émetteur"] = em.get("nom", "")
@@ -127,10 +128,13 @@ def flatten_data(data: dict) -> dict:
     flat["Émetteur Tél"] = em.get("telephone", "")
     flat["Émetteur Email"] = em.get("email", "")
     flat["Émetteur SIRET"] = em.get("siret", "")
+    flat["Émetteur TVA Intra"] = em.get("tva_intra", "")
 
     dest = data.get("destinataire", {})
     flat["Destinataire"] = dest.get("nom", "")
     flat["Destinataire Adresse"] = dest.get("adresse", "")
+    flat["Destinataire SIRET"] = dest.get("siret", "")
+    flat["Destinataire TVA Intra"] = dest.get("tva_intra", "")
 
     doc = data.get("document", {})
     flat["N° Document"] = doc.get("numero", "")
@@ -138,6 +142,10 @@ def flatten_data(data: dict) -> dict:
     flat["Date échéance"] = doc.get("date_echeance", "")
     flat["Référence"] = doc.get("reference", "")
     flat["Objet"] = doc.get("objet", "")
+
+    # Année extraite de la date d'émission (format JJ/MM/AAAA → 4 derniers chars)
+    date_em = doc.get("date_emission", "")
+    flat["Année"] = date_em[-4:] if len(date_em) >= 4 and date_em[-4:].isdigit() else ""
 
     tot = data.get("totaux", {})
     flat["Total HT"] = tot.get("total_ht", "")
@@ -148,6 +156,8 @@ def flatten_data(data: dict) -> dict:
     paie = data.get("paiement", {})
     flat["Mode paiement"] = paie.get("mode", "")
     flat["IBAN"] = paie.get("iban", "")
+    flat["BIC"] = paie.get("bic", "")
+    flat["Conditions paiement"] = paie.get("conditions", "")
     flat["Notes"] = data.get("notes", "")
 
     return flat

@@ -12,6 +12,7 @@ import openai
 import streamlit as st
 from pdf2image import convert_from_bytes
 
+from modules.classification import calculer_fingerprint, detecter_doublon
 from modules.export import build_single_excel
 from modules.extraction import (
     encode_image,
@@ -116,6 +117,17 @@ if uploaded_files and api_key:
                             data.get("client_detecte", "Non identifié") or "Non identifié"
                         )
 
+                        # Détection de doublons
+                        fingerprint = calculer_fingerprint(data)
+                        doublon = detecter_doublon(data, st.session_state.history)
+                        if doublon:
+                            qualif = "exact" if doublon.get("match") == "exact" else "probable"
+                            st.warning(
+                                f"⚠️ Doublon **{qualif}** détecté — ce document ressemble à "
+                                f"**{doublon['filename']}** (extrait le {doublon['timestamp']}). "
+                                f"Ajouté quand même."
+                            )
+
                         st.session_state.history.append(
                             {
                                 "filename": uploaded_file.name,
@@ -124,6 +136,7 @@ if uploaded_files and api_key:
                                 "lines_df": lines_df,
                                 "type": doc_type,
                                 "client": client_name,
+                                "fingerprint": fingerprint,
                                 "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
                             }
                         )
