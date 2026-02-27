@@ -1,8 +1,9 @@
 """
 Page Upload & Extraction — DocScan Pro.
 
-Permet d'uploader des documents (PDF, images), de les analyser via GPT-4o Vision
-et de télécharger les données extraites au format Excel.
+Permet d'uploader des documents (PDF, images) ou de prendre une photo directement
+via la caméra, puis d'analyser chaque document via GPT-4o Vision et de télécharger
+les données extraites au format Excel.
 """
 
 import json
@@ -38,21 +39,57 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown("## 📤 Uploader des documents")
+st.markdown("## 📤 Ajouter des documents")
 
 # ─────────────────────────────────────────────
-# Upload
+# Saisie : fichiers ou caméra (onglets)
 # ─────────────────────────────────────────────
-uploaded_files = st.file_uploader(
-    "Glisse tes documents ici — factures, devis, bons de commande, fiches de paie...",
-    type=["png", "jpg", "jpeg", "webp", "pdf"],
-    accept_multiple_files=True,
-    help="Formats : PNG, JPG, JPEG, WEBP, PDF · Max 20 Mo par fichier",
-)
+tab_fichier, tab_camera = st.tabs(["📁 Fichiers", "📷 Photo directe"])
 
+with tab_fichier:
+    uploaded_files = st.file_uploader(
+        "Glisse tes documents ici — factures, devis, bons de commande, fiches de paie...",
+        type=["png", "jpg", "jpeg", "webp", "pdf"],
+        accept_multiple_files=True,
+        help="Formats : PNG, JPG, JPEG, WEBP, PDF · Max 20 Mo par fichier",
+    )
+
+with tab_camera:
+    st.caption("Pointe ta caméra vers le document, puis clique sur le bouton de capture.")
+    camera_photo = st.camera_input("Capturer un document", label_visibility="collapsed")
+
+# ─────────────────────────────────────────────
+# Normalisation des sources en une liste commune
+# Chaque item : {"file": obj, "name": str, "ext": str}
+# ─────────────────────────────────────────────
+fichiers_a_traiter: list[dict] = []
+
+if uploaded_files:
+    for f in uploaded_files:
+        fichiers_a_traiter.append(
+            {
+                "file": f,
+                "name": f.name,
+                "ext": f.name.rsplit(".", 1)[-1].lower(),
+            }
+        )
+
+if camera_photo:
+    nom_photo = f"photo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+    fichiers_a_traiter.append(
+        {
+            "file": camera_photo,
+            "name": nom_photo,
+            "ext": "jpeg",
+        }
+    )
+
+# ─────────────────────────────────────────────
+# Vérification clé API
+# ─────────────────────────────────────────────
 api_key = get_api_key()
 
-if uploaded_files and not api_key:
+if fichiers_a_traiter and not api_key:
     st.warning(
         "⚠️ Entre ta clé API OpenAI dans la barre latérale ou configure les Secrets Streamlit."
     )
@@ -60,52 +97,49 @@ if uploaded_files and not api_key:
 # ─────────────────────────────────────────────
 # Extraction
 # ─────────────────────────────────────────────
-if uploaded_files and api_key:
+if fichiers_a_traiter and api_key:
     if st.button("🚀 Lancer l'extraction", type="primary", use_container_width=True):
 
         progress = st.progress(0, text="Préparation...")
 
-        for i, uploaded_file in enumerate(uploaded_files):
+        for i, item in enumerate(fichiers_a_traiter):
+            fichier = item["file"]
+            nom = item["name"]
+            ext = item["ext"]
+
             progress.progress(
-                i / len(uploaded_files),
-                text=f"📄 Analyse de {uploaded_file.name} ({i+1}/{len(uploaded_files)})...",
+                i / len(fichiers_a_traiter),
+                text=f"📄 Analyse de {nom} ({i+1}/{len(fichiers_a_traiter)})...",
             )
 
-            st.markdown(f"---\n### 📄 {uploaded_file.name}")
+            st.markdown(f"---\n### 📄 {nom}")
             col_img, col_result = st.columns([1, 1.5])
 
             with col_img:
-                file_ext = uploaded_file.name.rsplit(".", 1)[-1].lower()
-                if file_ext == "pdf":
+                if ext == "pdf":
                     try:
                         preview_images = convert_from_bytes(
-                            uploaded_file.getvalue(), first_page=1, last_page=1, dpi=150
+                            fichier.getvalue(), first_page=1, last_page=1, dpi=150
                         )
                         st.image(
                             preview_images[0],
-                            caption=uploaded_file.name,
+                            caption=nom,
                             use_container_width=True,
                         )
                     except Exception:
-                        st.info(f"📄 Fichier PDF : {uploaded_file.name}")
+                        st.info(f"📄 Fichier PDF : {nom}")
                 else:
-                    st.image(
-                        uploaded_file,
-                        caption=uploaded_file.name,
-                        use_container_width=True,
-                    )
+                    st.image(fichier, caption=nom, use_container_width=True)
 
             with col_result:
                 with st.spinner("🔍 GPT-4o Vision analyse..."):
                     try:
-                        file_ext = uploaded_file.name.rsplit(".", 1)[-1].lower()
-
-                        if file_ext == "pdf":
-                            img_b64 = pdf_to_image_b64(uploaded_file)
+                        if ext == "pdf":
+                            img_b64 = pdf_to_image_b64(fichier)
                             send_ext = "png"
                         else:
-                            img_b64 = encode_image(uploaded_file)
-                            send_ext = file_ext
+                            img_b64 = encode_image(fichier)
+                            send_ext = ext
 
                         data = extract_data(img_b64, send_ext, api_key)
 
@@ -130,7 +164,7 @@ if uploaded_files and api_key:
 
                         st.session_state.history.append(
                             {
-                                "filename": uploaded_file.name,
+                                "filename": nom,
                                 "raw": data,
                                 "flat": flat,
                                 "lines_df": lines_df,
@@ -177,9 +211,9 @@ if uploaded_files and api_key:
 
                         excel_bytes = build_single_excel(flat, lines_df)
                         st.download_button(
-                            label=f"📥 Excel · {uploaded_file.name}",
+                            label=f"📥 Excel · {nom}",
                             data=excel_bytes,
-                            file_name=f"{client_name}_{doc_type}_{uploaded_file.name.rsplit('.', 1)[0]}.xlsx",
+                            file_name=f"{client_name}_{doc_type}_{nom.rsplit('.', 1)[0]}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         )
 
